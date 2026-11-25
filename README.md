@@ -1,42 +1,63 @@
 # Le P'tit Resto 29
 
-Site vitrine du P'tit Resto 29, burgers maison à Fouesnant (5 rue de Kernévéleck, 29170).
+Site du P'tit Resto 29 (burgers maison, Fouesnant) : carte, click & collect avec créneaux de retrait, réservation de table, espace client avec fidélité et back-office du restaurant.
 
-Site **100 % statique** : HTML, CSS et un petit fichier JavaScript. Pas de build, pas de base de données, pas de dépendance. Il fonctionne sur n'importe quel hébergement de fichiers statiques et ne dépend plus de ChatGPT Sites.
+Ce dépôt remplace l'hébergement ChatGPT Sites. L'interface est celle du site d'origine. Le serveur a été réécrit pour **Cloudflare Workers** (offre gratuite, usage commercial autorisé), avec une base **D1** (SQLite) et un espace **KV** pour les photos ajoutées depuis l'administration.
 
-## Contenu
+## Ce qui a été repris du site d'origine (25/11/2026)
 
-| Fichier | Rôle |
+- L'interface complète (HTML, CSS, JavaScript) : rendu identique.
+- Les textes de la page d'accueil, la carte complète (42 produits avec prix et descriptions) et les 3 photos du carrousel.
+- Les logos et les photos du restaurant, optimisés : environ 7 Mo d'images ramenés à 0,5 Mo, sans perte visible.
+
+**Non récupérable depuis l'extérieur** : les comptes clients, l'historique des commandes et réservations, le compte administrateur et les réglages exacts des créneaux. Le compte admin se recrée avec `npm run admin:remote`. Les clients recréent leur compte. Les créneaux démarrent avec : mardi au vendredi, 12h–13h30 et 19h–21h, pas de 15 min, 1 réservation et 5 retraits par créneau. Tout se modifie dans l'administration.
+
+## Différences avec l'original
+
+- **Bug corrigé** : à l'ouverture de l'administration, le formulaire « Règles de disponibilité » affichait 5 minutes et aucun jour ouvert au lieu des vrais réglages. Un clic sur « Enregistrer » fermait alors le restaurant à la réservation.
+- **Bug corrigé** : un burger ou une boisson ajouté depuis l'administration n'apparaissait ni sur la carte ni dans le click & collect. Il est maintenant rangé avec les burgers ou les softs.
+- **Ajout** : un lien « Mentions légales et confidentialité » en bas de page. Il est obligatoire, car le site collecte nom, e-mail et téléphone des clients. **Compléter les champs surlignés** dans `public/mentions-legales.html`.
+- **Polices** : la feuille de style d'origine prévoit Fraunces et DM Sans, mais son `@import` mal placé fait que ces polices n'étaient jamais chargées. Le rendu actuel, avec les polices du système, est conservé à l'identique.
+- **E-mails de confirmation** : pas d'envoi d'e-mail pour l'instant (`notification.sent = false`). Il faudrait un service d'envoi (ex. Brevo ou Resend, offres gratuites), à décider.
+- **Fidélité** : 1 point par euro, crédité quand une commande passe en « Retirée · payée sur place ».
+
+## Structure
+
+| Chemin | Rôle |
 | --- | --- |
-| `index.html` | Page d'accueil : présentation, carte, terrasse, horaires, accès, contact |
-| `mentions-legales.html` | Mentions légales (champs à compléter avant la mise en ligne) |
-| `styles.css` | Mise en forme, ordinateur et mobile |
-| `main.js` | Menu mobile, jour courant et statut « ouvert / fermé » (heure de Paris) |
-| `assets/img/` | Photos du restaurant (WebP optimisé) et image de partage `og-image.jpg` |
-| `assets/fonts/` | Police Bricolage Grotesque, hébergée localement (licence SIL OFL 1.1) |
+| `public/` | Interface (servie telle quelle) : `index.html`, `app.js`, `app.css`, images, page légale, en-têtes de sécurité (`_headers`) |
+| `src/worker.js` | API : comptes, sessions, créneaux, commandes, réservations, administration, photos |
+| `migrations/` | Schéma de la base et données de départ (contenu, carrousel, carte) |
+| `scripts/create-admin.mjs` | Création du compte administrateur (le mot de passe n'est jamais stocké en clair) |
+| `scripts/smoke-test.mjs` | Recette de bout en bout de l'API (61 contrôles), **uniquement en local** |
 
-Aucun cookie, aucun traceur, aucune ressource externe chargée : rien à déclarer côté RGPD.
+Sécurité : mots de passe hachés (PBKDF2-SHA256, 100 000 itérations), cookie de session `HttpOnly` / `Secure` / `SameSite=Lax`, refus des requêtes venant d'un autre site, limitation des tentatives de connexion (10 par e-mail, 30 par IP, sur 15 min), vérification du contenu réel des images envoyées, CSP stricte.
 
-## Lancer le site en local
+## Lancer en local
 
 ```bash
-python3 -m http.server 8029
-# puis ouvrir http://localhost:8029
+npm install
+npm run db:migrate:local
+npm run admin:local          # crée un compte admin local (e-mail + mot de passe demandés)
+npm run dev                  # http://127.0.0.1:8787
+ADMIN_EMAIL=… ADMIN_PASSWORD=… npm test   # recette, dans un second terminal
 ```
 
-## Modifier les horaires
+## Mettre en ligne sur Cloudflare (gratuit)
 
-Les horaires apparaissent à trois endroits, à garder identiques :
+1. Créer un compte sur [dash.cloudflare.com](https://dash.cloudflare.com), puis : `npx wrangler login`.
+2. Créer la base et l'espace photos :
+   ```bash
+   npx wrangler d1 create leptitresto29
+   npx wrangler kv namespace create MEDIA
+   ```
+   Recopier les deux identifiants affichés dans `wrangler.jsonc` (`database_id` et `id`).
+3. Initialiser la base en ligne et créer le compte admin :
+   ```bash
+   npm run db:migrate:remote
+   npm run admin:remote
+   ```
+4. Publier : `npm run deploy`. Le site répond sur `https://leptitresto29.<votre-sous-domaine>.workers.dev`.
+5. Nom de domaine (optionnel) : dans Cloudflare, *Workers & Pages → leptitresto29 → Settings → Domains & Routes → Add custom domain*.
 
-1. le tableau `.hours` dans `index.html` (affichage) ;
-2. l'objet `HORAIRES` dans `main.js` (badge « ouvert / fermé ») ;
-3. le bloc `openingHoursSpecification` du JSON-LD dans `index.html` (Google).
-
-## Hébergement
-
-Deux solutions gratuites, au choix :
-
-- **GitHub Pages** (le plus simple, le code est déjà ici) : *Settings → Pages → Build and deployment → Deploy from a branch → `main` / `(root)`*. Le site est alors servi sur `https://nymarz.github.io/Leptitresto29/`, et un nom de domaine (ex. `leptitresto29.fr`) peut y être branché.
-- **Cloudflare Pages** : connecter ce dépôt, sans commande de build, dossier de sortie `/`. Usage commercial autorisé sur l'offre gratuite.
-
-Une fois l'hébergeur choisi, compléter la rubrique « Hébergement » de `mentions-legales.html`.
+Une fois le site en ligne et vérifié, le site ChatGPT Sites peut être arrêté.
